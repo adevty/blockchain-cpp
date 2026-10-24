@@ -134,3 +134,133 @@ public:
     }
 
 };
+
+class Blockchain {
+private:
+    vector<Block> chain;
+    vector<Transaction> pending_transactions;
+    int difficulty;
+    double mining_reward;
+
+public:
+    Blockchain(int diff = 4, double reward = 50.0)
+        : difficulty(diff), mining_reward(reward) {
+        cout << "Create a Genesis Block...\n";
+        vector<Transaction> genesis_tx =  { Transaction("NETWORK", "Founder", 1000.0)};
+        chain.emplace_back(0, genesis_tx, "0", difficulty);
+    }
+
+    const Block& get_latest_block() const {
+        return chain.back();
+    }
+
+    void add_transaction(const string& sender, const string& receiver, double amount) {
+        if (sender != "SYSTEM" && get_balance(sender) < amount) {
+            cout << "[REJECTED] Transaction failed: Balance " << sender << " Insufficient!\n";
+            return;
+        }
+        pending_transactions.emplace_back(sender, receiver, amount);
+        cout << "[MEMPOOL] Transaction added: " << sender << " -> " << receiver
+        << " (" << amount << " COIN)\n";
+    }
+
+    void mine_pending_transaction(const string& miner_address) {
+        Transaction reward_tx("SYSTEM", miner_address, mining_reward);
+        pending_transactions.push_back(reward_tx);
+
+        cout << "\nStarting block mining #" << chain.size() << "...\n";
+        Block new_block(chain.size(), pending_transactions, get_latest_block().hash, difficulty);
+        chain.push_back(new_block);
+
+        pending_transactions.clear();
+    }
+
+    double get_balance(const string& address) const {
+        double balance = 0.0;
+        for (const auto& block : chain) {
+            for (const auto& tx : block.transactions) {
+                if (tx.sender == address) balance -= tx.amount;
+                if (tx.receiver == address) balance += tx.amount;
+            }
+        }
+
+        for (const auto& tx : pending_transactions) {
+            if (tx.sender == address) balance -= tx.amount;
+        }
+        return balance;
+    }
+
+    bool is_chain_valid() const {
+        string target(difficulty, '0');
+
+        for (size_t i = 1; i < chain.size(); ++i) {
+            const Block& current = chain[i];
+            const Block& previous = chain[i - 1];
+
+            if (current.hash != current.calc_hash()) {
+                cout << "[ALERT] Integrity failure at Block #" << current.index
+                     << ": The block hash does not match the content!\n";
+                return false;
+            }
+
+            if (current.merkle_root != current.calc_merkle_root()) {
+                cout << "[ALERT] Integrity failure at Block #" << current.index
+                     << ": Transaction data has been modified (Merkle Root mismatch)!\n";
+                return false;
+            }
+
+            if (current.previous_hash != previous.hash) {
+                cout << "[ALERT] Integrity failure at Block #" << current.index
+                     << ": Previous hash broken!\n";
+                return false;
+            }
+
+            if (current.hash.substr(0, difficulty) != target) {
+                cout << "[ALERT] Integrity failure at Block #" << current.index
+                     << ": The block has not been mined properly!\n";
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void print_chain() const {
+        for (const auto& block : chain) {
+            block.print_block();
+        }
+    }
+
+    void tamper_block_data(size_t block_index, size_t tx_index, double fake_amount) {
+        if (block_index < chain.size() && tx_index < chain[block_index].transactions.size()) {
+            chain[block_index].transactions[tx_index].amount = fake_amount;
+        }
+    }
+};
+
+int main(){
+    
+    // Initialize
+    Blockchain my_coin(4, 50.0);
+
+    // Scenario 1: First tx
+    my_coin.add_transaction("Founder", "Alice", 250.0);
+    my_coin.mine_pending_transaction("First Miner");
+
+    my_coin.add_transaction("Alice", "Bob", 150.0);
+    my_coin.mine_pending_transaction("Second Miner");
+    
+
+    cout << "\n === HISTORY BLOCKCHAIN ===\n";
+    my_coin.print_chain();
+    
+    // check balance wallet address
+    cout << "=== BALANCE WALLET NOW ===\n";
+    cout << "Bob        : " << my_coin.get_balance("Bob") << " COIN\n";
+    cout << "Alice      : " << my_coin.get_balance("Alice") << " COIN\n";
+    cout << "Founder    : " << my_coin.get_balance("Founder") << " COIN\n";
+
+    cout << "\n=== AUDIT SECURITY ===\n";
+    cout << "Is Blockchain Valid? " << (my_coin.is_chain_valid() ? "YES (SECURE)\n" : "NO (CORRUPT)\n");
+
+    return 0;
+}
